@@ -1,4 +1,6 @@
+from collections import deque
 from typing import Dict, List, NamedTuple, Tuple
+from treelib import Tree
 import random
 
 '''
@@ -71,6 +73,15 @@ def parse_position(position: str) -> Tuple[int, int]:
     row: int = int(row_character) - 1
 
     return row, column
+
+'''
+Utility function to parse a Tuple (like [0,2] back into a positon (a, 3) 
+'''
+def reverse_parse_position(pos: Tuple[int, int]) -> str:
+    row, col = pos
+    col_char = chr(ord("A") + col)
+    row_char = str(row + 1)
+    return f"{col_char}{row_char}"
 
 '''
 This function detects if the move is legal according to the rulles specified in the assignment
@@ -207,6 +218,9 @@ def check_win_condition(
     # The move limit has been reached.
     losers: List[int] = []
 
+    # If turn limit is reached and a player has their pieces in another 
+    # players end zone then that player is declared a loser and everyone else tied_players
+    # this is to prevent blocking strategies
     for player in active_players:
         is_blocking: bool = False
 
@@ -305,6 +319,90 @@ def illegal_bot(
 
     raise ValueError(f"Player {player} has no pieces")
     
+def searchTree_bot(
+    board: List[List[int]],
+    player: int,
+    visualize_tree: bool
+) -> Tuple[str, str]:
+
+    # Basic idea for rn:
+    # we'll generate a whole buncha alternative realities until we find one where the bot wins - Dr Strange
+    # then we'll pick the next move according to that, after player makes their move we need to repeat
+    # the whole process again
+
+    # Use current board postion as root node
+    tree = Tree()
+    tree.create_node("Root", "root", data = {"board": board})
+    
+    # make a node for each legal move (e.g. a2 -> a3)
+    # node will also have to store game state copy so actual game state is not affected
+    # then go into a node, and repeat until some kinda preset depth, basically BFS until we find a
+    # solution or run out of depth
+
+    # Each queue entry is a tuple[nodeId, board, depth]
+    queue = deque([("root", board, 0)])
+    node_id_counter = 0
+    winning_node_id = None 
+    max_depth = 3
+
+    while queue and not winning_node_id: 
+        parent_id, parent_board, parent_depth = queue.popleft()
+       
+        # Eventually we stop the parent so we dont search forever 
+        if parent_depth >= max_depth:
+            continue
+        
+        # generate all legal moves
+        # make the child nodes relate to this parent
+        # enqueue the child nodes 
+
+        legal_moves: List[Tuple[Tuple[int, int], Tuple[int, int]]] = []
+
+        for row in range(5):
+            for column in range(5):
+                if parent_board[row][column] != player:
+                    continue
+
+                oldPos: Tuple[int, int] = (row, column)
+
+                for new_row in range(5):
+                    for new_column in range(5):
+                        newPos: Tuple[int, int] = (new_row, new_column)
+
+                        if check_legal_move(parent_board, oldPos, newPos):
+                            legal_moves.append((oldPos, newPos))
+
+        for i in range(len(legal_moves)):
+            oldPos, newPos = legal_moves[i]
+
+            child_board = [row[:] for row in parent_board]
+            child_board[oldPos[0]][oldPos[1]] = 0
+            child_board[newPos[0]][newPos[1]] = player 
+            
+            node_id_counter += 1
+            child_id = str(node_id_counter)
+            child_depth = parent_depth + 1
+            
+            if all(child_board[row][column] == player 
+                for row, column in win_cells[player]):
+                winning_node_id = node_id_counter
+                break
+
+            tree.create_node(f"{reverse_parse_position(oldPos)} -> {reverse_parse_position(newPos)}", 
+                            child_id, parent = parent_id, data={"Board": child_board})
+
+            # need to add some kinda condition here to prevent looping over same board states
+            queue.append((child_id, child_board, child_depth))
+
+    if visualize_tree:
+        print("Basic Search Tree just for possible initial moves")
+        tree.show()
+
+    # hardcoded vals for rn
+    old_reference: str = chr(ord("A") + 4) + str(4)
+    new_reference: str = chr(ord("A") + 2) + str(2 + 1)
+
+    return old_reference, new_reference
     
     
     
