@@ -2,6 +2,8 @@ from collections import deque
 from typing import Dict, List, NamedTuple, Tuple
 from treelib import Tree
 import random
+import itertools
+import heapq
 
 '''
 Helper Class to contain the results
@@ -50,6 +52,12 @@ win_cells_1v1: Dict[int, List[Tuple[int, int]]] = {
 }
 
 '''
+Converts Board State to a bytes object for faster comparisons
+'''
+def to_bytes(board: List[List[int]]) -> bytes:
+    return bytes(itertools.chain.from_iterable(board))
+
+'''
 Utility function to parse input string and transform it into Tuple
 '''
 def parse_position(position: str) -> Tuple[int, int]:
@@ -82,6 +90,24 @@ def reverse_parse_position(pos: Tuple[int, int]) -> str:
     col_char = chr(ord("A") + col)
     row_char = str(row + 1)
     return f"{col_char}{row_char}"
+
+'''
+Calculate score based off some heuristics, for now lets just use manhattan distance
+'''
+def calculate_heuristic_score(player: int, oldPos: Tuple[int, int], newPos: Tuple[int, int]) -> int:
+    # best is the most distance that gets us close to the solution
+    # assume 1v1 map for now? 
+
+    win_cells = win_cells_1v1[player]
+    goal = win_cells[0]
+
+    score = abs(sum(newPos) - sum(oldPos))
+
+    if abs(sum(goal) - sum(oldPos)) < abs(sum(goal) - sum(newPos)):
+        score *= -1
+
+    return score
+
 
 '''
 This function detects if the move is legal according to the rulles specified in the assignment
@@ -331,27 +357,26 @@ def searchTree_bot(
     # the whole process again
 
     # Use current board postion as root node
-    tree = Tree()
-    tree.create_node("Root", "root", data = {"board": board})
     
     # make a node for each legal move (e.g. a2 -> a3)
     # node will also have to store game state copy so actual game state is not affected
-    # then go into a node, and repeat until some kinda preset depth, basically BFS until we find a
-    # solution or run out of depth
 
-    # Each queue entry is a tuple[nodeId, board, depth]
-    queue = deque([("root", board, 0)])
+    max_heap = []
     node_id_counter = 0
     winning_node_id = None 
-    max_depth = 3
 
-    while queue and not winning_node_id: 
-        parent_id, parent_board, parent_depth = queue.popleft()
-       
-        # Eventually we stop the parent so we dont search forever 
-        if parent_depth >= max_depth:
-            continue
-        
+    tree = Tree()
+    tree.create_node("Root", node_id_counter, data = {"board": board})
+
+    # Each entry is [-score, node_id, board]
+    heapq.heappush(max_heap, (0, node_id_counter, board))
+
+    # For quick lookups of already seen board positions (pruning)
+    visited = {to_bytes(board)}
+
+    while max_heap and not winning_node_id: 
+        parent_score, parent_id, parent_board = heapq.heappop(max_heap)
+
         # generate all legal moves
         # make the child nodes relate to this parent
         # enqueue the child nodes 
@@ -378,31 +403,63 @@ def searchTree_bot(
             child_board = [row[:] for row in parent_board]
             child_board[oldPos[0]][oldPos[1]] = 0
             child_board[newPos[0]][newPos[1]] = player 
+
+            if to_bytes(child_board) in visited:
+                continue;
+            visited.add(to_bytes(child_board))
             
             node_id_counter += 1
-            child_id = str(node_id_counter)
-            child_depth = parent_depth + 1
+            child_id = node_id_counter
             
+            oldPosStr = reverse_parse_position(oldPos)
+            newPosStr = reverse_parse_position(newPos)
+
+            score = calculate_heuristic_score(player, oldPos, newPos)
+            
+            tree.create_node(f"{oldPosStr} -> {newPosStr}", 
+                             child_id, 
+                             parent = parent_id, 
+                             data={"Board": child_board, "oldPos": oldPos, "newPos": newPos, "score": score})
+
             if all(child_board[row][column] == player 
-                for row, column in win_cells[player]):
+                for row, column in win_cells_1v1[player]):
                 winning_node_id = node_id_counter
                 break
+            
+            heapq.heappush(max_heap, (-score, child_id, child_board))
 
-            tree.create_node(f"{reverse_parse_position(oldPos)} -> {reverse_parse_position(newPos)}", 
-                            child_id, parent = parent_id, data={"Board": child_board})
+    if winning_node_id:
+        # make a path [winning node ,...., first move]
+        path = []
+        curr_node = tree.get_node(winning_node_id)
+        while curr_node.identifier != 0:
+            path.append(curr_node)
+            curr_node = tree.parent(curr_node.identifier)
 
-            # need to add some kinda condition here to prevent looping over same board states
-            queue.append((child_id, child_board, child_depth))
+        win_tree = Tree()
+        win_tree.create_node("Root", 0)
 
-    if visualize_tree:
-        print("Basic Search Tree just for possible initial moves")
-        tree.show()
+        for node in reversed(path):
+            win_tree.create_node(
+                tag = node.tag,
+                identifier = node.identifier,
+                parent = tree.parent(node.identifier).identifier,
+                data = node.data
+            )
 
-    # hardcoded vals for rn
-    old_reference: str = chr(ord("A") + 4) + str(4)
-    new_reference: str = chr(ord("A") + 2) + str(2 + 1)
+        if visualize_tree:
+            win_tree.show()
 
-    return old_reference, new_reference
-    
-    
-    
+        first_move_node = path[-1]
+        return reverse_parse_position(first_move_node.data["oldPos"]), reverse_parse_position(first_move_node.data["newPos"])
+    else:
+        children = tree.children(0)
+        first_move_node = None
+        max_score = float("-inf")
+
+        for child in children:
+            child_score = child.data["score"]
+            if child_score > max_score:
+                max_score = child_score
+                first_move_node = child
+        return reverse_parse_position(first_move_node.data["oldPos"]), reverse_parse_position(first_move_node.data["newPos"])
