@@ -6,18 +6,9 @@ Run:     python halma_pygame.py
 """
 from typing import List, Optional, Tuple, Callable
 import pygame
+from halma import *
+from AI_Player_Team20 import *
 
-from halma import (
-    check_legal_move,
-    check_win_condition,
-    move,
-    parse_position,
-    random_bot,
-    illegal_bot,
-    searchTree_bot,
-    win_cells_1v1,
-    initial_pos_1v1
-)
 
 # True: human player 1 versus bot player 2. False: two local humans.
 PLAY_AGAINST_BOT: bool = True
@@ -25,14 +16,29 @@ MAXIMUM_MOVE_LIMIT: int = 30  # Total successful moves, across both players.
 VISUALIZE_SEARCH_TREE: bool = False # This is here to match the function signature, the random bot does not visualize anything 
 BOT_DELAY_MS: int = 450
 
-INITIAL_BOARD: List[List[int]] = initial_pos_1v1
+MODE: str = "4P"
+TOTAL_PLAYERS = 4 if MODE == "4P" else 2
+INITIAL_BOARD: List[List[int]] = initial_pos if MODE == "4P" else initial_pos_1v1
+WIN_CELLS = win_cells_all if MODE == "4P" else win_cells_1v1
 
 CELL_SIZE = 90
 BOARD_X = 55
 BOARD_Y = 135
 WINDOW_SIZE = (560, 710)
-COLORS = {1: (58, 124, 223), 2: (229, 115, 55)}
-ZONE_COLORS = {1: (204, 222, 249), 2: (250, 220, 198)}
+COLORS = {
+    0: (235, 235, 235),
+    1: (220, 50, 50),
+    2: (58, 124, 223),
+    3: (230, 200, 30),
+    4: (40, 180, 80),
+}
+
+ZONE_COLORS = {
+    1: (250, 210, 210),
+    2: (204, 222, 249),
+    3: (252, 245, 195),
+    4: (205, 245, 215),
+}
 
 BotFunction = Callable[
     [List[List[int]], int, bool],
@@ -40,7 +46,7 @@ BotFunction = Callable[
 ]
 
 # You can set your bot function here, the default one is random_bot, which as the name suggests makes random moves
-BOT_FUNCTION: BotFunction = searchTree_bot 
+BOT_FUNCTION: BotFunction = minimax_bot
 
 
 class HalmaGame:
@@ -56,7 +62,7 @@ class HalmaGame:
         self.message = "Select your piece, then a highlighted square."
         self.bot_error = False
         self.result = check_win_condition(
-            self.board, self.move_count, MAXIMUM_MOVE_LIMIT, False
+            self.board, self.move_count, MAXIMUM_MOVE_LIMIT, MODE=="4P"
         )
         self.bot_due = pygame.time.get_ticks() + BOT_DELAY_MS
 
@@ -80,10 +86,10 @@ class HalmaGame:
         self.move_count += 1
         self.selected = None
         self.result = check_win_condition(
-            self.board, self.move_count, MAXIMUM_MOVE_LIMIT, False
+            self.board, self.move_count, MAXIMUM_MOVE_LIMIT, MODE == "4P"
         )
         if self.result.status == "ongoing":
-            self.current_player = 3 - self.current_player
+            self.current_player = (self.current_player % TOTAL_PLAYERS) + 1
         self.message = "Select your piece, then a highlighted square."
         self.bot_due = pygame.time.get_ticks() + BOT_DELAY_MS
         return True
@@ -91,7 +97,7 @@ class HalmaGame:
     def handle_click(self, mouse_position: Tuple[int, int]) -> None:
         if self.result.status != "ongoing" or self.bot_error:
             return
-        if self.play_against_bot and self.current_player == 2:
+        if self.play_against_bot and self.current_player != 1:
             return
 
         x, y = mouse_position
@@ -107,7 +113,7 @@ class HalmaGame:
             self.attempt_move(self.selected, position)
 
     def update_bot(self) -> None:
-        if (not self.play_against_bot or self.current_player != 2
+        if (not self.play_against_bot or self.current_player == 1
                 or self.result.status != "ongoing" or self.bot_error
                 or pygame.time.get_ticks() < self.bot_due):
             return
@@ -152,7 +158,7 @@ class HalmaGame:
         elif self.bot_error:
             status = "Game paused: bot error"
         else:
-            actor = " (bot)" if self.play_against_bot and self.current_player == 2 else ""
+            actor = " (bot)" if self.play_against_bot and self.current_player == 1 else ""
             status = f"Player {self.current_player}'s turn{actor}"
         label(status, 35, 84)
 
@@ -169,7 +175,7 @@ class HalmaGame:
                 rect = pygame.Rect(BOARD_X + column * CELL_SIZE,
                                    BOARD_Y + row * CELL_SIZE, CELL_SIZE, CELL_SIZE)
                 background = (255, 255, 255) if (row + column) % 2 == 0 else (234, 239, 246)
-                for player, cells in win_cells_1v1.items():
+                for player, cells in WIN_CELLS.items():
                     if position in cells:
                         background = ZONE_COLORS[player]
                 pygame.draw.rect(screen, background, rect)

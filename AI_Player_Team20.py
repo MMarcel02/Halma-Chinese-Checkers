@@ -1,5 +1,5 @@
-
 from treelib import Tree
+from halma import *
 import itertools
 import heapq
 
@@ -25,7 +25,124 @@ def reverse_parse_position(pos: Tuple[int, int]) -> str:
     return f"{col_char}{row_char}"
 
 '''
-Calculate score just based of distance do goal
+Get all legal moves for current player on current board
+'''
+def get_legal_moves(
+    board: List[List[int]],
+    player: int,
+) -> List[Tuple[Tuple[int, int], Tuple[int, int]]]:
+
+    legal_moves: List[Tuple[Tuple[int, int], Tuple[int, int]]] = []
+    
+    for row in range(5):
+        for column in range(5):
+            if board[row][column] != player:
+                continue
+
+            oldPos: Tuple[int, int] = (row, column)
+
+            for new_row in range(5):
+                for new_column in range(5):
+                    newPos: Tuple[int, int] = (new_row, new_column)
+
+                    if check_legal_move(board, oldPos, newPos):
+                        legal_moves.append((oldPos, newPos))
+    return legal_moves
+
+
+'''
+Evaluate postion a player on board (Week 2)
+'''
+def get_board_score(
+    board: List[List[int]],
+    player: int,
+) -> int:
+
+    win_cells = win_cells_all[player]
+
+    score = 0
+
+    for row in range(5):
+        for col in range(5):
+            if board[row][col] != player: 
+                continue
+
+            closest_dist = float("inf")
+
+            for win_cell in win_cells:
+                dist = abs(win_cell[0] - row) + abs(win_cell[1] - col)
+                if dist < closest_dist:
+                    closest_dist = dist
+
+            score -= closest_dist
+    return score
+
+def recursive_max(
+    board: List[List[int]],
+    player: int,
+    curr_depth: int
+) -> Tuple[Tuple[int, int, int, int], Tuple[Tuple[int, int], Tuple[int, int]]]:
+
+    #base:
+    if curr_depth == 0:
+        scores = (
+            get_board_score(board, 1),
+            get_board_score(board, 2),
+            get_board_score(board, 3),
+            get_board_score(board, 4),
+        ) 
+        return scores, None
+
+    legal_moves: List[Tuple[Tuple[int, int], Tuple[int, int]]] = get_legal_moves(board, player) 
+
+    #if not legal_moves:
+        #give some kinda error or skip turn
+    
+    #recursive:
+    # simulate all legal moves then call again to let next player do same thing
+    # multiplayer so instead becomes max-n meaning each player only wants their best move
+    
+    next_player = (player % 4) + 1
+    best_score = None
+    best_move = None
+
+    for move in legal_moves:
+        oldPos, newPos = move
+
+        child_board = [row[:] for row in board]
+        child_board[oldPos[0]][oldPos[1]] = 0
+        child_board[newPos[0]][newPos[1]] = player 
+
+        next_score, next_move = recursive_max(child_board, next_player, curr_depth - 1)
+        player_index = player - 1
+
+        if best_score == None or next_score[player_index] > best_score[player_index]:
+            best_score = next_score
+            best_move = move
+
+    return best_score, best_move
+
+'''
+Bot for Week 2 stuff in progress (1v3 game against other ais) 
+'''
+def minimax_bot(
+    board: List[List[int]],
+    player: int,
+    visualize_tree: bool
+) -> Tuple[str, str]:
+
+    tree = Tree()
+    #tree.create_node("Root", node_id_counter, data = {"board": board})
+
+    max_depth = 2
+
+    best_score, best_move = recursive_max(board, player, max_depth)
+    oldPos, newPos = best_move
+
+    return reverse_parse_position(oldPos), reverse_parse_position(newPos)
+
+'''
+Calculate score just based of distance do goal (Week 1)
 '''
 def calculate_heuristic_score(player: int, oldPos: Tuple[int, int], newPos: Tuple[int, int]) -> int:
     # best is the most distance that gets us close to the solution
