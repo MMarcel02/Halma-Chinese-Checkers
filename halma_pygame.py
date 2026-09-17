@@ -12,7 +12,7 @@ from AI_Player_Team20 import *
 
 # True: human player 1 versus bot player 2. False: two local humans.
 PLAY_AGAINST_BOT: bool = True
-MAXIMUM_MOVE_LIMIT: int = 30  # Total successful moves, across both players.
+MAXIMUM_MOVE_LIMIT: int = 90  # Total successful moves, across both players.
 VISUALIZE_SEARCH_TREE: bool = False # This is here to match the function signature, the random bot does not visualize anything 
 BOT_DELAY_MS: int = 450
 

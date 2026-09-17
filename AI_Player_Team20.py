@@ -77,11 +77,30 @@ def get_board_score(
             score -= closest_dist
     return score
 
+CORNERS = {
+    1: (4, 4),
+    2: (4, 0),
+    3: (0, 0),
+    4: (0, 4)
+}
+
 def recursive_max(
     board: List[List[int]],
     player: int,
-    curr_depth: int
+    curr_depth: int,
+    parent_id: int,
 ) -> Tuple[Tuple[int, int, int, int], Tuple[Tuple[int, int], Tuple[int, int]]]:
+
+    visited_positions = recursive_max.visited_positions
+    tree = recursive_max.tree
+
+    position = (to_bytes(board), player)
+
+    # lookup table of already seen position at this depth or higher
+    if position in visited_positions:
+        scores, depth = visited_positions[position]
+        if depth >= curr_depth:
+            return scores, None
 
     #base:
     if curr_depth == 0:
@@ -91,35 +110,70 @@ def recursive_max(
             get_board_score(board, 3),
             get_board_score(board, 4),
         ) 
+        visited_positions[position] = (scores, curr_depth)
         return scores, None
 
+    corner = CORNERS[player]
     legal_moves: List[Tuple[Tuple[int, int], Tuple[int, int]]] = get_legal_moves(board, player) 
+    next_player = (player % 4) + 1
 
-    #if not legal_moves:
-        #give some kinda error or skip turn
+    if not legal_moves:
+        if tree is not None:
+            recursive_max.counter += 1 
+            child_id = recursive_max.counter
+            tree.create_node(f"Player {player}: No legal moves, skipping turn", child_id, parent = parent_id)
+
+        scores, move = recursive_max(board, next_player, curr_depth -1,  child_id)
+        return scores, None
+
+    player_index = player - 1
     
+    ordered_moves = []
+
+    for move in legal_moves:
+        oldPos, newPos = move
+
+        dist_left_before = abs(corner[0] - oldPos[0]) + abs(corner[1] - oldPos[1])
+        dist_left_after = abs(corner[0] - newPos[0]) + abs(corner[1] - newPos[1])
+        score = dist_left_before - dist_left_after
+
+        ordered_moves.append((score, move))
+
+    ordered_moves.sort(reverse=True)
+
     #recursive:
     # simulate all legal moves then call again to let next player do same thing
     # multiplayer so instead becomes max-n meaning each player only wants their best move
     
-    next_player = (player % 4) + 1
     best_score = None
     best_move = None
 
-    for move in legal_moves:
+    for score, move in ordered_moves:
         oldPos, newPos = move
 
         child_board = [row[:] for row in board]
         child_board[oldPos[0]][oldPos[1]] = 0
         child_board[newPos[0]][newPos[1]] = player 
+        child_id = None 
 
-        next_score, next_move = recursive_max(child_board, next_player, curr_depth - 1)
-        player_index = player - 1
+        if tree is not None:
+            oldPosStr = reverse_parse_position(oldPos)
+            newPosStr = reverse_parse_position(newPos)
+
+            recursive_max.counter += 1 
+            child_id = recursive_max.counter
+            tree.create_node(tag = f"P{player}: {oldPosStr} -> {newPosStr} (Heuristic Score: {score})", 
+                            identifier = child_id, 
+                            parent = parent_id,
+                            data = score)
+
+        next_score, _ = recursive_max(child_board, next_player, curr_depth - 1, child_id)
 
         if best_score == None or next_score[player_index] > best_score[player_index]:
             best_score = next_score
             best_move = move
 
+    visited_positions[position] = (best_score, curr_depth)
     return best_score, best_move
 
 '''
@@ -131,15 +185,31 @@ def minimax_bot(
     visualize_tree: bool
 ) -> Tuple[str, str]:
 
-    tree = Tree()
-    #tree.create_node("Root", node_id_counter, data = {"board": board})
+    tree = None
+    if visualize_tree:
+        tree = Tree()
+        tree.create_node(f"P{player} Turn", 0)
+        recursive_max.counter = 0
+        recursive_max.tree = tree
+    else:
+        recursive_max.tree = None
+
+    visited_positions: dict[Tuple[bytes, int], Tuple[Tuple[int, int, int, int], int]] = {}
+    recursive_max.visited_positions = visited_positions
 
     max_depth = 2
-
-    best_score, best_move = recursive_max(board, player, max_depth)
+    best_score, best_move = recursive_max(board, player, max_depth, 0)
     oldPos, newPos = best_move
 
+    if visualize_tree:
+        tree.show(key=get_score, reverse=True)
+
     return reverse_parse_position(oldPos), reverse_parse_position(newPos)
+
+def get_score(n):
+    if n.data is not None:
+        return n.data
+    return 0
 
 '''
 Calculate score just based of distance do goal (Week 1)
