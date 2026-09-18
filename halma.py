@@ -1,7 +1,9 @@
-from collections import deque
 from typing import Dict, List, NamedTuple, Tuple
 import random
+import math
 
+NUM_PLAYERS = 4
+SEARCH_DEPTH = 4
 '''
 Helper Class to contain the results
 '''
@@ -208,9 +210,6 @@ def check_win_condition(
     # The move limit has been reached.
     losers: List[int] = []
 
-    # If turn limit is reached and a player has their pieces in another 
-    # players end zone then that player is declared a loser and everyone else tied_players
-    # this is to prevent blocking strategies
     for player in active_players:
         is_blocking: bool = False
 
@@ -308,3 +307,261 @@ def illegal_bot(
                 return position, position
 
     raise ValueError(f"Player {player} has no pieces")
+    
+    
+'''
+Convert board from lists to tuples for use as a dictionary 
+'''
+def board_key(board: List[List[int]]):
+    return tuple(tuple(row) for row in board)
+
+'''
+Check whether we are in week 2 1v1, or week 3 multiplayer variant
+'''
+def check_game_variant(board: List[List[int]], player: int):
+    is_four_player = False
+    for row in board:
+        for piece in row:
+            if piece == 3 or piece == 4:
+                is_four_player = True
+                break
+        if is_four_player:
+            break
+
+    if not is_four_player and player in win_cells_1v1:
+        return win_cells_1v1[player]
+    
+    return win_cells_all[player]
+
+
+'''
+Calculates Manhattan distance to corresponding winning squares
+'''
+def current_evaluation(board: List[List[int]], player: int) -> float:
+    target_cells = check_game_variant(board, player)
+        
+    total_distance = 0
+    # The closer we get to zero, the closer our goal is
+    for row in range(5):
+        for column in range(5):
+            if board[row][column] == player:
+                closest_distance = min(
+                    abs(row - target_row) + abs(column - target_column) 
+                    for target_row, target_column in target_cells
+                )
+                total_distance += closest_distance
+
+    return -float(total_distance)
+
+'''
+Compare the moved piece's distance before and after a proposed move
+Use the distance improvement to order moves before MaxN searches them
+'''
+def move_priority(
+    board: List[List[int]],
+    moving_player: int,
+    old_pos: Tuple[int, int],
+    new_pos: Tuple[int, int],
+) -> float:
+    target_cells = check_game_variant(board, moving_player)
+
+    old_distance = min(
+        abs(old_pos[0] - target_row) + abs(old_pos[1] - target_column)
+        for target_row, target_column in target_cells
+    )
+    new_distance = min(
+        abs(new_pos[0] - target_row) + abs(new_pos[1] - target_column)
+        for target_row, target_column in target_cells
+    )
+    return old_distance - new_distance
+
+
+'''
+Generates future legal moves for current player
+Only the positions of legal moves are stored here
+Moves are sorted from the largest distance improvement to the smallest
+'''
+def get_children(
+    board: List[List[int]],
+    player: int,
+) -> List[Tuple[Tuple[int, int], Tuple[int, int]]]:
+
+    children = []
+    offsets = ((0, -2), (0, -1), (0, 1), (0, 2),
+               (-2, 0), (-1, 0), (1, 0), (2, 0))
+
+    for row in range(5):
+        for col in range(5):
+            if board[row][col] != player:
+                continue
+
+            for row_offset, col_offset in offsets:
+                new_row = row + row_offset
+                new_col = col + col_offset
+                if not (0 <= new_row < 5 and 0 <= new_col < 5):
+                    continue
+
+                new_position = (new_row, new_col)
+                if board[new_row][new_col] != 0:
+                    continue
+
+                distance = abs(row_offset) + abs(col_offset)
+                if distance == 1:
+                    children.append(((row, col), new_position))
+                    continue
+
+                middle_row = row + row_offset // 2
+                middle_col = col + col_offset // 2
+                if board[middle_row][middle_col] != 0:
+                    children.append(((row, col), new_position))
+
+    children.sort(
+        key=lambda item: move_priority(board, player, item[0], item[1]),
+        reverse=True,
+    )
+    return children
+
+
+def next_player(p: int) -> int:
+    return (p % NUM_PLAYERS) + 1
+
+'''
+determines whether all target squares(wiining squares) are occupied
+We will use this in maxN search
+'''
+def game_over(board: List[List[int]], player: int) -> bool:
+    target_cells = check_game_variant(board, player)
+
+    return all(
+        board[row][column] == player
+        for row, column in target_cells
+    )
+
+
+def position_conversion(position: Tuple[int, int]) -> str:
+    row, col = position
+    return chr(ord("A") + col) + str(row + 1)
+
+'''
+Track scores for each player on current board
+Stored as a vector for maxN multiplayer approach
+'''
+def board_scores(board: List[List[int]]):
+    return tuple(
+        current_evaluation(board, player)
+        for player in range(1, NUM_PLAYERS + 1)
+    )
+
+
+def maxn(
+    board: List[List[int]],
+    depth: int,
+    current_player: int,
+    visited_positions: dict,
+):
+    # Create key for current board and player
+    position = (board_key(board), current_player)
+    
+    #if exact position has been found previous at at least this depth, reuses old score
+    if position in visited_positions:
+        scores, searched_depth = visited_positions[position]
+        if searched_depth >= depth:
+            return scores
+
+    someone_won = any(
+        game_over(board, player)
+        for player in range(1, NUM_PLAYERS + 1)
+    )
+    
+    # Evaluate the board when the search limit is reached or someone wins
+    if depth <= 0 or someone_won:
+        scores = board_scores(board)
+        visited_positions[position] = (scores, depth)
+        return scores
+
+    # Generate legal moves and recursively evaluate their resulting boards
+    children = get_children(board, current_player)
+    # Skip the current player's turn if no moves are available
+    if not children:
+        scores = maxn(
+            board,
+            depth - 1,
+            next_player(current_player),
+            visited_positions,
+        )
+        visited_positions[position] = (scores, depth)
+        return scores
+
+    player_index = current_player - 1
+    best_scores = None
+
+    #create a copy of our board and evaluate score of possible positions recursively
+    for old_pos, new_pos in children:
+        child = [row[:] for row in board]
+        child[old_pos[0]][old_pos[1]] = 0
+        child[new_pos[0]][new_pos[1]] = current_player
+        child_scores = maxn(
+            child,
+            depth - 1,
+            next_player(current_player),
+            visited_positions,
+        )
+
+        # best child score selected for the current player
+        if (
+            best_scores is None
+            or child_scores[player_index] > best_scores[player_index]
+        ):
+            best_scores = child_scores
+            
+        #best possible score
+        if best_scores[player_index] == 0:
+            break
+
+    visited_positions[position] = (best_scores, depth)
+    return best_scores
+
+
+def AI_Player_Team20(board: List[List[int]], player: int, visualize_tree: bool) -> Tuple[str, str]:
+    if player not in [1, 2, 3, 4]:
+        raise ValueError(f"Player {player} is not a valid player number")
+
+    if any(value not in range(5) for row in board for value in row):
+        raise ValueError("Out of board range")
+
+    children = get_children(board, player)
+    if not children:
+        raise ValueError(f"Player {player} has no legal moves")
+
+    best_move = None
+    best_scores = None
+    player_index = player - 1
+
+    target_depth = SEARCH_DEPTH
+    visited_positions = {}
+
+    for old_pos, new_pos in children:
+        child = [row[:] for row in board]
+        child[old_pos[0]][old_pos[1]] = 0
+        child[new_pos[0]][new_pos[1]] = player
+        child_scores = maxn(
+            child,
+            target_depth - 1,
+            next_player(player),
+            visited_positions,
+        )
+        if (
+            best_scores is None
+            or child_scores[player_index] > best_scores[player_index]
+        ):
+            best_scores = child_scores
+            best_move = (old_pos, new_pos)
+
+        if best_scores[player_index] == 0:
+            break
+
+    if best_move is None:
+        best_move = children[0][:2]
+
+    old_pos, new_pos = best_move
+    return position_conversion(old_pos), position_conversion(new_pos)

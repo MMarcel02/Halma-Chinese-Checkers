@@ -7,7 +7,7 @@ Run:     python halma_pygame.py
 from typing import List, Optional, Tuple, Callable
 import pygame
 from halma import *
-from AI_Player_Team20 import *
+#from AI_Player_Team20 import *
 
 
 # True: human player 1 versus bot player 2. False: two local humans.
@@ -46,7 +46,7 @@ BotFunction = Callable[
 ]
 
 # You can set your bot function here, the default one is random_bot, which as the name suggests makes random moves
-BOT_FUNCTION: BotFunction = minimax_bot
+BOT_FUNCTION: BotFunction = AI_Player_Team20
 
 
 class HalmaGame:
